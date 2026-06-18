@@ -2,7 +2,7 @@
 
 const TEAM_TYPES = [
   'PLC','Grade-Level Team','MTSS','Climate Team',
-  'SIT','Staff Meeting','ASERT','KidTalk',
+  'SIT','Staff Meeting','ASERT','KidTalk','Community Partners',
 ]
 const SCHOOL_YEARS = ['2024–25','2025–26','2026–27','2027–28']
 
