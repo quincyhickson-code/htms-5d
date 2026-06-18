@@ -249,9 +249,9 @@ function cycleCardHTML(c) {
 function showNewCycleModal() {
   const today = new Date().toISOString().slice(0, 10)
   const modal = document.createElement('div')
-  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:100;display:flex;align-items:center;justify-content:center;padding:20px'
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:100;display:flex;align-items:flex-end;justify-content:center;padding:0'
   modal.innerHTML = `
-    <div class="card" style="width:100%;max-width:480px;padding:24px">
+    <div class="card" style="width:100%;max-width:520px;padding:24px 20px;border-radius:16px 16px 0 0;max-height:92vh;overflow-y:auto">
       <h2 style="font-size:18px;font-weight:700;color:var(--bright);margin-bottom:18px">Start a New Cycle</h2>
       <div class="field-group">
         <label class="field-label">Team Name <span class="required">*</span></label>
@@ -903,7 +903,7 @@ function renderAdminDashboard(allCycles) {
       </div>
       <a href="#" class="btn btn-ghost btn-sm">← Back to Dashboard</a>
     </div>
-    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:24px">
+    <div class="admin-stat-row" style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:24px">
       ${[['Total Cycles', total],['Complete', complete],['In Progress', draft]].map(([l,v]) =>
         `<div class="card" style="flex:1;min-width:120px;text-align:center">
           <div style="font-size:28px;font-weight:800;color:var(--accent)">${v}</div>
