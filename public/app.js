@@ -874,9 +874,12 @@ function renderAdmin() {
     document.getElementById('pin-submit').onclick = async () => {
       const pin = document.getElementById('pin-input').value
       try {
-        const meta = await api('GET', `/admin/meta?pin=${encodeURIComponent(pin)}`)
+        // Validate PIN via /api/admin, then load meta if available
+        await api('GET', `/admin?pin=${encodeURIComponent(pin)}`)
         adminPin = pin
         adminUnlocked = true
+        let meta = { schools: [], teams: [], years: [] }
+        try { meta = await api('GET', `/admin/meta?pin=${encodeURIComponent(pin)}`) } catch {}
         renderAdminDashboard(meta)
       } catch (e) { toast(e.message || 'Incorrect PIN', 'error') }
     }
@@ -885,8 +888,12 @@ function renderAdmin() {
     })
     return
   }
-  api('GET', `/admin/meta?pin=${encodeURIComponent(adminPin)}`)
-    .then(renderAdminDashboard)
+  api('GET', `/admin?pin=${encodeURIComponent(adminPin)}`)
+    .then(async () => {
+      let meta = { schools: [], teams: [], years: [] }
+      try { meta = await api('GET', `/admin/meta?pin=${encodeURIComponent(adminPin)}`) } catch {}
+      renderAdminDashboard(meta)
+    })
     .catch(() => { adminUnlocked = false; renderAdmin() })
 }
 
