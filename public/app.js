@@ -878,7 +878,7 @@ function renderAdmin() {
         adminPin = pin
         adminUnlocked = true
         renderAdminDashboard(meta)
-      } catch { toast('Incorrect PIN', 'error') }
+      } catch (e) { toast(e.message || 'Incorrect PIN', 'error') }
     }
     document.getElementById('pin-input').addEventListener('keydown', e => {
       if (e.key === 'Enter') document.getElementById('pin-submit').click()
