@@ -1,0 +1,5 @@
+node_modules/
+data/cycles.db
+data/cycles.db-shm
+data/cycles.db-wal
+.env

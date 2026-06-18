@@ -1,0 +1,16 @@
+{
+  "name": "htms-5d",
+  "version": "1.0.0",
+  "description": "HTMS 5D Continuous Improvement Cycle — digital tool for data-informed team decisions",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "keywords": [],
+  "author": "Q Creative LLC",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "better-sqlite3": "^12.11.1"
+  }
+}
