@@ -254,6 +254,10 @@ function showNewCycleModal() {
     <div class="card" style="width:100%;max-width:520px;padding:24px 20px;border-radius:16px 16px 0 0;max-height:92vh;overflow-y:auto">
       <h2 style="font-size:18px;font-weight:700;color:var(--bright);margin-bottom:18px">Start a New Cycle</h2>
       <div class="field-group">
+        <label class="field-label">School Name</label>
+        <input type="text" id="m-school" placeholder="e.g. HTMS" />
+      </div>
+      <div class="field-group">
         <label class="field-label">Team Name <span class="required">*</span></label>
         <input type="text" id="m-team" placeholder="e.g. 6th Grade Team" />
       </div>
@@ -297,6 +301,7 @@ function showNewCycleModal() {
     if (!team || !type || !year || !date) { toast('Please fill in all required fields', 'error'); return }
     try {
       const cycle = await api('POST', '/cycles', {
+        school:     document.getElementById('m-school').value.trim() || 'HTMS',
         team_name: team, team_type: type, school_year: year, date_started: date,
         facilitator: document.getElementById('m-fac').value.trim(),
         recorder:    document.getElementById('m-rec').value.trim(),
@@ -849,6 +854,8 @@ function buildReportHTML(c) {
 
 // ── Admin ──────────────────────────────────────────────────────────────────
 
+let adminPin = ''
+
 function renderAdmin() {
   if (!adminUnlocked) {
     main().innerHTML = `
@@ -867,9 +874,10 @@ function renderAdmin() {
     document.getElementById('pin-submit').onclick = async () => {
       const pin = document.getElementById('pin-input').value
       try {
-        const data = await api('GET', `/admin?pin=${encodeURIComponent(pin)}`)
+        const meta = await api('GET', `/admin/meta?pin=${encodeURIComponent(pin)}`)
+        adminPin = pin
         adminUnlocked = true
-        renderAdminDashboard(data)
+        renderAdminDashboard(meta)
       } catch { toast('Incorrect PIN', 'error') }
     }
     document.getElementById('pin-input').addEventListener('keydown', e => {
@@ -877,58 +885,157 @@ function renderAdmin() {
     })
     return
   }
-  api('GET', '/admin?pin=').then(renderAdminDashboard).catch(() => { adminUnlocked = false; renderAdmin() })
+  api('GET', `/admin/meta?pin=${encodeURIComponent(adminPin)}`)
+    .then(renderAdminDashboard)
+    .catch(() => { adminUnlocked = false; renderAdmin() })
 }
 
-function renderAdminDashboard(allCycles) {
-  const total    = allCycles.length
-  const complete = allCycles.filter(c => c.status === 'complete').length
-  const draft    = total - complete
+function multiCheckboxGroup(id, items, label) {
+  return `<div class="admin-filter-group">
+    <div class="admin-filter-label">${label}</div>
+    <div class="admin-multi-checks" id="${id}">
+      ${items.map(item => `
+        <label class="check-item">
+          <input type="checkbox" value="${item}" checked /> ${item}
+        </label>`).join('')}
+    </div>
+  </div>`
+}
 
-  const byYear = {}
-  const byPriority = {}
-  const byTeam = {}
-  for (const c of allCycles) {
-    byYear[c.school_year] = (byYear[c.school_year] || 0) + 1
-    const p = c.d1?.priority?.[0] || 'Unspecified'
-    byPriority[p] = (byPriority[p] || 0) + 1
-    byTeam[c.team_name] = (byTeam[c.team_name] || 0) + 1
-  }
+function getCheckedValues(containerId) {
+  return [...document.querySelectorAll(`#${containerId} input:checked`)].map(el => el.value)
+}
+
+async function renderAdminDashboard(meta) {
+  const { schools = [], teams = [], years = [] } = meta
 
   main().innerHTML = `
     <div class="dashboard-header">
       <div>
         <div class="dashboard-title">Admin Dashboard</div>
-        <div class="dashboard-subtitle">All teams · All years</div>
+        <div class="dashboard-subtitle">Filter across schools, teams, and years to build reports</div>
       </div>
-      <a href="#" class="btn btn-ghost btn-sm">← Back to Dashboard</a>
+      <a href="#" class="btn btn-ghost btn-sm">← Back</a>
     </div>
-    <div class="admin-stat-row" style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:24px">
-      ${[['Total Cycles', total],['Complete', complete],['In Progress', draft]].map(([l,v]) =>
-        `<div class="card" style="flex:1;min-width:120px;text-align:center">
-          <div style="font-size:28px;font-weight:800;color:var(--accent)">${v}</div>
-          <div style="font-size:12px;color:var(--muted)">${l}</div>
-        </div>`
-      ).join('')}
+
+    <div class="card" style="margin-bottom:20px">
+      <div class="section-label" style="margin:0 0 14px">Filter Selection</div>
+      <div class="admin-filter-bar">
+        ${schools.length > 1 ? multiCheckboxGroup('f-schools', schools, 'Schools') : ''}
+        ${teams.length ? multiCheckboxGroup('f-teams', teams, 'Teams') : ''}
+        ${years.length ? multiCheckboxGroup('f-years', years, 'School Years') : ''}
+        <div class="admin-filter-group">
+          <div class="admin-filter-label">Status</div>
+          <div class="admin-multi-checks" id="f-statuses">
+            ${[['draft','In Progress'],['awaiting-reflection','Awaiting Reflection'],['complete','Complete']].map(([v,l]) =>
+              `<label class="check-item">
+                <input type="checkbox" value="${v}" checked /> ${l}
+              </label>`).join('')}
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">
+        <button class="btn btn-sm" id="apply-filters-btn">View Cycles</button>
+        <button class="btn btn-outline btn-sm" id="gen-report-btn" style="border-color:var(--accent);color:var(--accent)">Generate Combined Report</button>
+        <button class="btn btn-ghost btn-sm" id="select-all-btn">Select All</button>
+        <button class="btn btn-ghost btn-sm" id="deselect-all-btn">Deselect All</button>
+      </div>
     </div>
-    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:24px">
-      <div class="card" style="flex:1;min-width:200px">
-        <div class="section-label" style="margin:0 0 10px">By School Year</div>
-        ${Object.entries(byYear).map(([y,n])=>`<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);font-size:13px"><span>${y}</span><strong>${n}</strong></div>`).join('')}
-      </div>
-      <div class="card" style="flex:1;min-width:200px">
-        <div class="section-label" style="margin:0 0 10px">By Priority</div>
-        ${Object.entries(byPriority).map(([p,n])=>`<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);font-size:13px"><span>${p}</span><strong>${n}</strong></div>`).join('')}
-      </div>
-      <div class="card" style="flex:1;min-width:200px">
-        <div class="section-label" style="margin:0 0 10px">By Team</div>
-        ${Object.entries(byTeam).map(([t,n])=>`<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);font-size:13px"><span>${t}</span><strong>${n}</strong></div>`).join('')}
-      </div>
-    </div>
-    <div class="section-label">All Cycles</div>
-    ${allCycles.map(cycleCardHTML).join('')}
+
+    <div id="admin-results"></div>
   `
-  main().querySelectorAll('[data-cycle-id]').forEach(card => {
+
+  document.getElementById('select-all-btn').onclick   = () =>
+    document.querySelectorAll('.admin-multi-checks input').forEach(cb => cb.checked = true)
+  document.getElementById('deselect-all-btn').onclick = () =>
+    document.querySelectorAll('.admin-multi-checks input').forEach(cb => cb.checked = false)
+  document.getElementById('apply-filters-btn').onclick = () => loadAdminResults(false)
+  document.getElementById('gen-report-btn').onclick    = () => loadAdminResults(true)
+
+  loadAdminResults(false)
+}
+
+async function loadAdminResults(generateReport) {
+  const schools  = getCheckedValues('f-schools')
+  const teams    = getCheckedValues('f-teams')
+  const years    = getCheckedValues('f-years')
+  const statuses = getCheckedValues('f-statuses')
+
+  const params = new URLSearchParams({ pin: adminPin })
+  if (schools.length)  params.set('schools',  schools.join(','))
+  if (teams.length)    params.set('teams',    teams.join(','))
+  if (years.length)    params.set('years',    years.join(','))
+  if (statuses.length) params.set('statuses', statuses.join(','))
+
+  let cycles
+  try { cycles = await api('GET', `/admin?${params}`) }
+  catch (e) { toast(e.message, 'error'); return }
+
+  if (generateReport) { renderAggregateReport(cycles); return }
+  renderAdminResults(cycles)
+}
+
+function freq(cycles, keyFn) {
+  const out = {}
+  for (const c of cycles) {
+    const k = keyFn(c) || 'Unknown'
+    out[k] = (out[k] || 0) + 1
+  }
+  return out
+}
+
+function flatFreq(cycles, keysFn) {
+  const out = {}
+  for (const c of cycles) {
+    for (const k of (keysFn(c) || [])) out[k] = (out[k] || 0) + 1
+  }
+  return out
+}
+
+function summaryCard(title, data) {
+  const rows = Object.entries(data)
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, n]) => `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);font-size:13px"><span>${k}</span><strong>${n}</strong></div>`)
+    .join('')
+  return `<div class="card" style="flex:1;min-width:180px">
+    <div class="section-label" style="margin:0 0 10px">${title}</div>
+    ${rows || '<div style="font-size:12px;color:var(--muted)">—</div>'}
+  </div>`
+}
+
+function renderAdminResults(cycles) {
+  const wrap = document.getElementById('admin-results')
+  if (!wrap) return
+
+  const total    = cycles.length
+  const complete = cycles.filter(c => c.status === 'complete').length
+  const draft    = cycles.filter(c => c.status === 'draft').length
+  const awaiting = cycles.filter(c => c.status === 'awaiting-reflection').length
+
+  const byYear     = freq(cycles, c => c.school_year)
+  const byPriority = freq(cycles, c => c.d1?.priority?.[0] || 'Unspecified')
+  const byTeam     = freq(cycles, c => c.team_name)
+  const bySchool   = freq(cycles, c => c.school)
+
+  wrap.innerHTML = `
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px">
+      ${[['Total',total],['Complete',complete],['In Progress',draft],['Awaiting',awaiting]].map(([l,v])=>
+        `<div class="card" style="flex:1;min-width:90px;text-align:center;padding:14px">
+          <div style="font-size:26px;font-weight:800;color:var(--accent)">${v}</div>
+          <div style="font-size:11px;color:var(--muted)">${l}</div>
+        </div>`).join('')}
+    </div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:20px">
+      ${Object.keys(bySchool).length > 1 ? summaryCard('By School', bySchool) : ''}
+      ${summaryCard('By Team', byTeam)}
+      ${summaryCard('By Year', byYear)}
+      ${summaryCard('By Priority', byPriority)}
+    </div>
+    <div class="section-label">${total} Cycle${total !== 1 ? 's' : ''}</div>
+    ${cycles.map(cycleCardHTML).join('') || '<div class="empty-state"><div class="empty-icon">🔍</div>No cycles match the selected filters.</div>'}
+  `
+
+  wrap.querySelectorAll('[data-cycle-id]').forEach(card => {
     const id   = parseInt(card.dataset.cycleId)
     const stat = card.dataset.status
     card.addEventListener('click', () => {
@@ -936,6 +1043,106 @@ function renderAdminDashboard(allCycles) {
       else go(`c/${id}/${parseInt(card.dataset.step || 1) + 1}`)
     })
   })
+}
+
+function freqBadges(data) {
+  return Object.entries(data)
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, n]) => `<span class="print-check">${k} (${n})</span>`)
+    .join(' ')
+}
+
+function renderAggregateReport(cycles) {
+  if (!cycles.length) {
+    toast('No cycles match the selected filters', 'error')
+    return
+  }
+
+  const problems   = cycles.map(c => c.d1?.problem).filter(Boolean)
+  const priorities = flatFreq(cycles, c => c.d1?.priority || [])
+  const sources    = flatFreq(cycles, c => c.d1?.data_sources || [])
+  const subgroups  = flatFreq(cycles, c => c.d2?.subgroups || [])
+  const causes     = flatFreq(cycles, c => c.d3?.causes || [])
+  const indicators = flatFreq(cycles, c => c.d5?.indicators || [])
+  const nextSteps  = freq(cycles, c => c.reflection?.next_step)
+  const strategies = cycles.flatMap(c => (c.d4?.actions || []).map(a => a.strategy)).filter(Boolean)
+
+  const teamList   = [...new Set(cycles.map(c => c.team_name))].sort()
+  const schoolList = [...new Set(cycles.map(c => c.school))].sort()
+  const yearList   = [...new Set(cycles.map(c => c.school_year))].sort()
+  const complete   = cycles.filter(c => c.status === 'complete').length
+
+  const reportHTML = `
+    <div class="print-header">
+      <div class="print-title">Combined Improvement Cycle Report</div>
+      <div class="print-sub">HTMS 5D Data Inquiry — Aggregate Analysis</div>
+    </div>
+    <div class="print-meta">
+      <span><strong>Schools:</strong> ${schoolList.join(', ')}</span>
+      <span><strong>Teams:</strong> ${teamList.join(', ')}</span>
+    </div>
+    <div class="print-meta" style="margin-top:4px">
+      <span><strong>School Years:</strong> ${yearList.join(', ')}</span>
+      <span><strong>Generated:</strong> ${new Date().toLocaleDateString()}</span>
+    </div>
+
+    <div class="print-section">
+      <div class="print-step-label">Summary</div>
+      <div class="print-field"><div class="print-field-label">Cycles Analyzed</div><div class="print-field-value">${cycles.length} total · ${complete} complete</div></div>
+      <div class="print-field"><div class="print-field-label">Teams</div><div class="print-checks">${teamList.map(t => `<span class="print-check">${t}</span>`).join(' ')}</div></div>
+    </div>
+
+    <div class="print-section">
+      <div class="print-step-label">D1 — Problems of Practice</div>
+      ${problems.map((p, i) => `<div class="print-field"><div class="print-action-num">${i + 1}.</div><div class="print-field-value">${p}</div></div>`).join('')}
+      <div class="print-field" style="margin-top:8px"><div class="print-field-label">Priority Areas</div><div class="print-checks">${freqBadges(priorities)}</div></div>
+      <div class="print-field"><div class="print-field-label">Data Sources</div><div class="print-checks">${freqBadges(sources)}</div></div>
+    </div>
+
+    <div class="print-section">
+      <div class="print-step-label">D2 — Subgroups of Concern</div>
+      <div class="print-checks">${freqBadges(subgroups) || '<em>None identified</em>'}</div>
+    </div>
+
+    <div class="print-section">
+      <div class="print-step-label">D3 — Root Causes (ranked by frequency)</div>
+      ${Object.entries(causes).sort((a,b)=>b[1]-a[1]).map(([k,n])=>
+        `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #eee;font-size:13px"><span>${k}</span><strong>${n} cycle${n>1?'s':''}</strong></div>`
+      ).join('') || '<em>None recorded</em>'}
+    </div>
+
+    <div class="print-section">
+      <div class="print-step-label">D4 — Action Strategies</div>
+      ${strategies.map((s, i) => `<div class="print-action"><div class="print-action-num">${i + 1}.</div>${s}</div>`).join('') || '<em>None recorded</em>'}
+    </div>
+
+    <div class="print-section">
+      <div class="print-step-label">D5 — Success Indicators</div>
+      <div class="print-checks">${freqBadges(indicators) || '<em>None recorded</em>'}</div>
+      ${Object.keys(nextSteps).length ? `
+        <div class="print-field" style="margin-top:8px">
+          <div class="print-field-label">Reflection Outcomes</div>
+          <div class="print-checks">${freqBadges(nextSteps)}</div>
+        </div>` : ''}
+    </div>
+
+    <div class="print-section">
+      <div class="print-step-label">Cycles Included</div>
+      ${cycles.map(c => `<div style="padding:4px 0;border-bottom:1px solid #eee;font-size:13px">
+        <strong>${c.team_name}</strong> · ${c.school} · ${c.school_year} · ${fmtDate(c.date_started)} · <em>${c.status}</em>
+        ${c.d1?.problem ? '<div style="color:#666;margin-top:2px;font-size:12px">' + c.d1.problem + '</div>' : ''}
+      </div>`).join('')}
+    </div>
+  `
+
+  main().innerHTML = `
+    <div class="report-btn-bar">
+      <button class="btn btn-ghost btn-sm" onclick="go('admin')">← Back to Admin</button>
+      <button class="btn btn-sm" onclick="window.print()">Print Report</button>
+    </div>
+    <div class="card">${reportHTML}</div>
+  `
+  document.getElementById('print-area').innerHTML = reportHTML
 }
 
 // ── Boot ───────────────────────────────────────────────────────────────────
