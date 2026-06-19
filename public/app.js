@@ -425,11 +425,13 @@ function renderD1(wrap, saved, cycle) {
       </div>
       <div class="field-group">
         <label class="field-label" for="d1-problem">Problem of Practice <span class="required">*</span></label>
-        <textarea id="d1-problem" rows="3" placeholder="What question are we trying to answer?">${saved.problem || ''}</textarea>
+        <div class="field-hint">State the specific question your team is trying to answer.</div>
+        <textarea id="d1-problem" rows="3" placeholder="e.g. Why are sixth-grade referrals increasing after lunch?">${saved.problem || ''}</textarea>
       </div>
       <div class="field-group">
         <label class="field-label" for="d1-why">Why is this important? <span class="required">*</span></label>
-        <textarea id="d1-why" rows="2" placeholder="What is the impact on students?">${saved.why || ''}</textarea>
+        <div class="field-hint">Consider the impact on students if this problem continues unaddressed.</div>
+        <textarea id="d1-why" rows="2" placeholder="What is at stake for students?">${saved.why || ''}</textarea>
       </div>
       <div class="field-group">
         <label class="field-label">Priority Level <span class="required">*</span></label>
@@ -469,7 +471,8 @@ function renderD2(wrap, saved, cycle) {
     <div class="card">
       <div class="field-group">
         <label class="field-label" for="d2-patterns">Data Patterns &amp; Trends <span class="required">*</span></label>
-        <textarea id="d2-patterns" rows="3" placeholder="What patterns do you see in the data?">${saved.patterns || ''}</textarea>
+        <div class="field-hint">Look across subgroups, time periods, and data sources for what stands out.</div>
+        <textarea id="d2-patterns" rows="3" placeholder="Describe trends, spikes, or patterns you notice in the data…">${saved.patterns || ''}</textarea>
       </div>
       <div class="field-group">
         <label class="field-label">Subgroups of Concern</label>
@@ -477,15 +480,18 @@ function renderD2(wrap, saved, cycle) {
       </div>
       <div class="field-group" style="margin-top:14px">
         <label class="field-label" for="d2-strengths">Strengths Observed</label>
-        <textarea id="d2-strengths" rows="2" placeholder="What is working well?">${saved.strengths || ''}</textarea>
+        <div class="field-hint">Note what is already working before focusing on gaps.</div>
+        <textarea id="d2-strengths" rows="2" placeholder="What is working well for students in this area?">${saved.strengths || ''}</textarea>
       </div>
       <div class="field-group">
         <label class="field-label" for="d2-concerns">Areas of Concern <span class="required">*</span></label>
-        <textarea id="d2-concerns" rows="2" placeholder="Where do you see gaps or challenges?">${saved.concerns || ''}</textarea>
+        <div class="field-hint">What does the data reveal about where students need more support?</div>
+        <textarea id="d2-concerns" rows="2" placeholder="Where do you see the most significant gaps or challenges?">${saved.concerns || ''}</textarea>
       </div>
       <div class="field-group">
         <label class="field-label" for="d2-surprises">What Surprised Us?</label>
-        <textarea id="d2-surprises" rows="2" placeholder="Unexpected findings from the data…">${saved.surprises || ''}</textarea>
+        <div class="field-hint">Unexpected findings often point to overlooked root causes.</div>
+        <textarea id="d2-surprises" rows="2" placeholder="What did you not expect to find in the data?">${saved.surprises || ''}</textarea>
       </div>
     </div>
   `
@@ -526,7 +532,8 @@ function renderD3(wrap, saved, cycle) {
       </div>
       <div class="field-group" style="margin-top:14px">
         <label class="field-label" for="d3-notes">Discussion Notes &amp; Evidence <span class="required">*</span></label>
-        <textarea id="d3-notes" rows="4" placeholder="What evidence supports your thinking? What did the team discuss?">${saved.notes || ''}</textarea>
+        <div class="field-hint">What evidence from the data supports these causes? What did the team say?</div>
+        <textarea id="d3-notes" rows="4" placeholder="Summarize the team's reasoning and the evidence behind it…">${saved.notes || ''}</textarea>
       </div>
     </div>
   `
@@ -671,11 +678,13 @@ function renderD5(wrap, saved, cycle) {
       </div>
       <div class="field-group" style="margin-top:14px">
         <label class="field-label" for="d5-outcome">Expected Outcome <span class="required">*</span></label>
-        <textarea id="d5-outcome" rows="2" placeholder="What do you expect to see if the actions work?">${saved.outcome || ''}</textarea>
+        <div class="field-hint">Be specific — what will you see, hear, or measure if the strategy works?</div>
+        <textarea id="d5-outcome" rows="2" placeholder="Describe the change you expect to observe…">${saved.outcome || ''}</textarea>
       </div>
       <div class="field-group">
         <label class="field-label" for="d5-evidence">Evidence to Bring to Follow-Up Meeting <span class="required">*</span></label>
-        <textarea id="d5-evidence" rows="2" placeholder="What data or artifacts will the team bring to the next meeting?">${saved.evidence || ''}</textarea>
+        <div class="field-hint">What data or artifacts will your team bring back to the next meeting?</div>
+        <textarea id="d5-evidence" rows="2" placeholder="e.g. Updated referral data, attendance report, common assessment results…">${saved.evidence || ''}</textarea>
       </div>
       <div class="field-group">
         <label class="field-label" for="d5-review">Review Date <span class="required">*</span></label>
@@ -775,81 +784,107 @@ function buildReportHTML(c) {
   const d1 = c.d1 || {}; const d2 = c.d2 || {}; const d3 = c.d3 || {}
   const d4 = c.d4 || {}; const d5 = c.d5 || {}; const ref = c.reflection || {}
 
-  const actions = (d4.actions || []).map((a, i) => `
-    <div class="print-action">
-      <div class="print-action-num">Action ${i + 1}</div>
-      <div><strong>${a.strategy || '—'}</strong></div>
-      ${a.person     ? `<div>Responsible: ${a.person}</div>` : ''}
-      ${a.resources  ? `<div>Resources: ${a.resources}</div>` : ''}
-      ${a.start_date ? `<div>Dates: ${fmtDate(a.start_date)} – ${fmtDate(a.end_date)}</div>` : ''}
+  function rptField(label, value) {
+    if (!value) return ''
+    return `<div class="rpt-field">
+      <div class="rpt-field-label">${label}</div>
+      <div class="rpt-field-val">${value}</div>
+    </div>`
+  }
+
+  function rptChipsField(label, items) {
+    if (!items?.length) return ''
+    const chips = items.map(i => `<span class="rpt-chip">${i}</span>`).join('')
+    return `<div class="rpt-field">
+      <div class="rpt-field-label">${label}</div>
+      <div class="rpt-chips">${chips}</div>
+    </div>`
+  }
+
+  function rptStep(num, title, question, bodyHTML) {
+    if (!bodyHTML.trim()) return ''
+    return `<div class="rpt-step">
+      <div class="rpt-step-head">
+        <div class="rpt-step-num">${num}</div>
+        <div>
+          <div class="rpt-step-title">${title}</div>
+          <div class="rpt-step-q">${question}</div>
+        </div>
+      </div>
+      <div class="rpt-step-body">${bodyHTML}</div>
+    </div>`
+  }
+
+  const actionsHTML = (d4.actions || []).filter(a => a.strategy).map((a, i) => `
+    <div class="rpt-action">
+      <div class="rpt-action-num">Action ${i + 1}</div>
+      <div class="rpt-action-strategy">${a.strategy}</div>
+      <div class="rpt-action-meta">
+        ${a.person     ? `<span><strong>Responsible:</strong> ${a.person}</span>` : ''}
+        ${a.start_date ? `<span><strong>Start:</strong> ${fmtDate(a.start_date)}</span>` : ''}
+        ${a.end_date   ? `<span><strong>Due:</strong> ${fmtDate(a.end_date)}</span>` : ''}
+        ${a.resources  ? `<span><strong>Resources:</strong> ${a.resources}</span>` : ''}
+      </div>
     </div>
   `).join('')
 
-  return `
-    <div class="print-header">
-      <div class="print-title">HTMS Continuous Improvement Cycle</div>
-      <div class="print-sub">5D Data Inquiry Cycle · PLC | Grade-Level Teams | SIT | Climate Team | Staff Meetings | ASERT | KidTalk</div>
-    </div>
-    <div class="print-meta">
-      <span><strong>Team:</strong> ${c.team_name} (${c.team_type})</span>
-      <span><strong>Date:</strong> ${fmtDate(c.date_started)}</span>
-      <span><strong>School Year:</strong> ${c.school_year}</span>
-    </div>
-    <div class="print-meta" style="margin-top:4px">
-      ${c.facilitator ? `<span><strong>Facilitator:</strong> ${c.facilitator}</span>` : ''}
-      ${c.recorder    ? `<span><strong>Recorder:</strong> ${c.recorder}</span>` : ''}
-      ${c.review_date ? `<span><strong>Review Date:</strong> ${fmtDate(c.review_date)}</span>` : ''}
-    </div>
-    ${d1.data_sources?.length ? `<div class="print-meta" style="margin-top:4px"><strong>Data Sources:</strong> ${d1.data_sources.join(' · ')}</div>` : ''}
-
-    <div class="print-section">
-      <div class="print-step-label">D1 – DEFINE · "What question are we trying to answer?"</div>
-      <div class="print-field"><div class="print-field-label">Problem of Practice</div><div class="print-field-value">${d1.problem || '—'}</div></div>
-      <div class="print-field"><div class="print-field-label">Why is this important?</div><div class="print-field-value">${d1.why || '—'}</div></div>
-      <div class="print-field"><div class="print-field-label">Priority Level</div><div class="print-checks">${checksHTML(d1.priority)}</div></div>
+  return `<div class="rpt-doc">
+    <div class="rpt-header">
+      <div class="rpt-title">HTMS Continuous Improvement Cycle</div>
+      <div class="rpt-subtitle">5D Data Inquiry Cycle · PLC | Grade-Level Teams | SIT | Climate Team | Staff Meetings | ASERT | KidTalk</div>
+      <div class="rpt-meta-grid">
+        <div class="rpt-meta-item"><span class="rpt-meta-label">Team</span><span class="rpt-meta-val">${c.team_name} — ${c.team_type}</span></div>
+        <div class="rpt-meta-item"><span class="rpt-meta-label">School Year</span><span class="rpt-meta-val">${c.school_year}</span></div>
+        <div class="rpt-meta-item"><span class="rpt-meta-label">Date</span><span class="rpt-meta-val">${fmtDate(c.date_started)}</span></div>
+        ${c.facilitator ? `<div class="rpt-meta-item"><span class="rpt-meta-label">Facilitator</span><span class="rpt-meta-val">${c.facilitator}</span></div>` : ''}
+        ${c.recorder    ? `<div class="rpt-meta-item"><span class="rpt-meta-label">Recorder</span><span class="rpt-meta-val">${c.recorder}</span></div>` : ''}
+        ${c.review_date ? `<div class="rpt-meta-item"><span class="rpt-meta-label">Review Date</span><span class="rpt-meta-val">${fmtDate(c.review_date)}</span></div>` : ''}
+        ${d1.data_sources?.length ? `<div class="rpt-meta-item rpt-meta-wide"><span class="rpt-meta-label">Data Sources</span><span class="rpt-meta-val">${d1.data_sources.join(' · ')}</span></div>` : ''}
+      </div>
     </div>
 
-    <div class="print-section">
-      <div class="print-step-label">D2 – DISAGGREGATE · "What does the data tell us?"</div>
-      <div class="print-field"><div class="print-field-label">Patterns &amp; Trends</div><div class="print-field-value">${d2.patterns || '—'}</div></div>
-      <div class="print-field"><div class="print-field-label">Subgroups of Concern</div><div class="print-checks">${checksHTML(d2.subgroups)}</div></div>
-      ${d2.strengths ? `<div class="print-field"><div class="print-field-label">Strengths</div><div class="print-field-value">${d2.strengths}</div></div>` : ''}
-      <div class="print-field"><div class="print-field-label">Areas of Concern</div><div class="print-field-value">${d2.concerns || '—'}</div></div>
-      ${d2.surprises ? `<div class="print-field"><div class="print-field-label">What Surprised Us</div><div class="print-field-value">${d2.surprises}</div></div>` : ''}
-    </div>
+    ${rptStep('D1','DEFINE','"What question are we trying to answer?"',
+      rptField('Problem of Practice', d1.problem) +
+      rptField('Why Is This Important?', d1.why) +
+      rptChipsField('Priority Level', d1.priority)
+    )}
 
-    <div class="print-section">
-      <div class="print-step-label">D3 – DISCUSS · "What might be causing this?"</div>
-      <div class="print-field"><div class="print-field-label">Possible Root Causes</div><div class="print-checks">${checksHTML(d3.causes)}</div></div>
-      <div class="print-field"><div class="print-field-label">Discussion Notes &amp; Evidence</div><div class="print-field-value">${d3.notes || '—'}</div></div>
-    </div>
+    ${rptStep('D2','DISAGGREGATE','"What does the data actually tell us?"',
+      rptField('Data Patterns &amp; Trends', d2.patterns) +
+      rptChipsField('Subgroups of Concern', d2.subgroups) +
+      rptField('Strengths Observed', d2.strengths) +
+      rptField('Areas of Concern', d2.concerns) +
+      rptField('What Surprised Us', d2.surprises)
+    )}
 
-    <div class="print-section">
-      <div class="print-step-label">D4 – DECIDE · "What are we going to do?"</div>
-      ${actions || '<div class="print-field">—</div>'}
-    </div>
+    ${rptStep('D3','DISCUSS','"What might be causing this?"',
+      rptChipsField('Possible Root Causes', d3.causes) +
+      rptField('Discussion Notes &amp; Evidence', d3.notes)
+    )}
 
-    <div class="print-section">
-      <div class="print-step-label">D5 – DETERMINE · "How will we know?"</div>
-      <div class="print-field"><div class="print-field-label">Success Indicators</div><div class="print-checks">${checksHTML(d5.indicators)}</div></div>
-      <div class="print-field"><div class="print-field-label">Expected Outcome</div><div class="print-field-value">${d5.outcome || '—'}</div></div>
-      <div class="print-field"><div class="print-field-label">Evidence to Bring</div><div class="print-field-value">${d5.evidence || '—'}</div></div>
-    </div>
+    ${rptStep('D4','DECIDE','"What are we going to do?"',
+      actionsHTML ? `<div class="rpt-actions">${actionsHTML}</div>` : ''
+    )}
 
-    ${c.reflection ? `
-    <div class="print-section">
-      <div class="print-step-label">Reflection — Follow-Up Meeting</div>
-      ${ref.improved  ? `<div class="print-field"><div class="print-field-label">What Improved</div><div class="print-field-value">${ref.improved}</div></div>` : ''}
-      ${ref.same      ? `<div class="print-field"><div class="print-field-label">What Stayed the Same</div><div class="print-field-value">${ref.same}</div></div>` : ''}
-      ${ref.surprised ? `<div class="print-field"><div class="print-field-label">What Surprised Us</div><div class="print-field-value">${ref.surprised}</div></div>` : ''}
-      ${ref.next_step ? `<div class="print-field"><div class="print-field-label">Next Step</div><div class="print-field-value">${ref.next_step}</div></div>` : ''}
-    </div>` : ''}
+    ${rptStep('D5','DETERMINE','"How will we know?"',
+      rptChipsField('Success Indicators', d5.indicators) +
+      rptField('Expected Outcome', d5.outcome) +
+      rptField('Evidence to Bring to Follow-Up Meeting', d5.evidence) +
+      (c.review_date ? rptField('Review Date', fmtDate(c.review_date)) : '')
+    )}
 
-    <div class="sig-line">
-      <span>Facilitator: ________________________________</span>
-      <span>Recorder: ________________________________</span>
+    ${c.reflection ? rptStep('Reflection','FOLLOW-UP MEETING','Completed at the follow-up meeting',
+      rptField('What Improved?', ref.improved) +
+      rptField('What Stayed the Same?', ref.same) +
+      rptField('What Surprised Us?', ref.surprised) +
+      rptField('Next Step Decision', ref.next_step)
+    ) : ''}
+
+    <div class="rpt-sig">
+      <span>Facilitator ___________________________________</span>
+      <span>Recorder ___________________________________</span>
     </div>
-  `
+  </div>`
 }
 
 // ── Admin ──────────────────────────────────────────────────────────────────
