@@ -22,6 +22,7 @@ const db = new Database(DB_PATH)
 db.exec(`
   CREATE TABLE IF NOT EXISTS cycles (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    school      TEXT NOT NULL DEFAULT 'HTMS',
     team_name   TEXT NOT NULL,
     team_type   TEXT NOT NULL,
     school_year TEXT NOT NULL,
@@ -38,6 +39,26 @@ db.exec(`
     reflection  TEXT,
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  )
+`)
+// Add school column to existing databases that predate this field
+try { db.exec(`ALTER TABLE cycles ADD COLUMN school TEXT NOT NULL DEFAULT 'HTMS'`) } catch {}
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS events (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    school        TEXT NOT NULL DEFAULT 'HTMS',
+    team_name     TEXT NOT NULL DEFAULT '',
+    school_year   TEXT NOT NULL,
+    event_date    TEXT NOT NULL,
+    time_block    TEXT NOT NULL DEFAULT '',
+    polarity      TEXT NOT NULL DEFAULT 'negative',
+    category      TEXT NOT NULL,
+    location      TEXT NOT NULL DEFAULT '',
+    action_taken  TEXT NOT NULL DEFAULT '',
+    student_group TEXT NOT NULL DEFAULT '',
+    notes         TEXT NOT NULL DEFAULT '',
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
   )
 `)
 
@@ -127,14 +148,14 @@ const server = createServer(async (req, res) => {
   // POST /api/cycles — create
   if (path === '/api/cycles' && method === 'POST') {
     const body = await readBody(req)
-    const { team_name, team_type, school_year, facilitator, recorder, date_started } = body
+    const { school, team_name, team_type, school_year, facilitator, recorder, date_started } = body
     if (!team_name || !team_type || !school_year || !date_started) {
       return err(res, 'Missing required fields')
     }
     const result = db.prepare(`
-      INSERT INTO cycles (team_name, team_type, school_year, facilitator, recorder, date_started)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(team_name, team_type, school_year, facilitator || '', recorder || '', date_started)
+      INSERT INTO cycles (school, team_name, team_type, school_year, facilitator, recorder, date_started)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(school || 'HTMS', team_name, team_type, school_year, facilitator || '', recorder || '', date_started)
     const row = db.prepare('SELECT * FROM cycles WHERE id = ?').get(result.lastInsertRowid)
     return json(res, serializeCycle(row), 201)
   }
@@ -163,12 +184,91 @@ const server = createServer(async (req, res) => {
     return json(res, serializeCycle(updated))
   }
 
-  // GET /api/admin — verify PIN and return all cycles
+  // GET /api/admin — verify PIN and return all cycles with multi-filters
   if (path === '/api/admin' && method === 'GET') {
     const pin = url.searchParams.get('pin')
     if (pin !== ADMIN_PIN) return err(res, 'Invalid PIN', 403)
-    const rows = db.prepare('SELECT * FROM cycles ORDER BY created_at DESC').all().map(serializeCycle)
+
+    // Multi-value filters: ?schools=HTMS,Jefferson&teams=6th+Grade,MTSS&years=2025-26&status=complete
+    const schools  = url.searchParams.get('schools')?.split(',').map(s => s.trim()).filter(Boolean) || []
+    const teams    = url.searchParams.get('teams')?.split(',').map(s => s.trim()).filter(Boolean) || []
+    const years    = url.searchParams.get('years')?.split(',').map(s => s.trim()).filter(Boolean) || []
+    const statuses = url.searchParams.get('statuses')?.split(',').map(s => s.trim()).filter(Boolean) || []
+
+    let q = 'SELECT * FROM cycles WHERE 1=1'
+    const params = []
+    if (schools.length) { q += ` AND school IN (${schools.map(() => '?').join(',')})`;     params.push(...schools) }
+    if (teams.length)   { q += ` AND team_name IN (${teams.map(() => '?').join(',')})`;    params.push(...teams) }
+    if (years.length)   { q += ` AND school_year IN (${years.map(() => '?').join(',')})`;  params.push(...years) }
+    q += ' ORDER BY school, team_name, created_at DESC'
+
+    let rows = db.prepare(q).all(...params).map(serializeCycle)
+    if (statuses.length) rows = rows.filter(r => statuses.includes(r.status))
+
     return json(res, rows)
+  }
+
+  // GET /api/admin/meta — list distinct schools, teams, years for filter UI
+  if (path === '/api/admin/meta' && method === 'GET') {
+    const pin = url.searchParams.get('pin')
+    if (pin !== ADMIN_PIN) return err(res, 'Invalid PIN', 403)
+    const schools = db.prepare('SELECT DISTINCT school FROM cycles ORDER BY school').all().map(r => r.school)
+    const teams   = db.prepare('SELECT DISTINCT team_name FROM cycles ORDER BY team_name').all().map(r => r.team_name)
+    const years   = db.prepare('SELECT DISTINCT school_year FROM cycles ORDER BY school_year').all().map(r => r.school_year)
+    return json(res, { schools, teams, years })
+  }
+
+  // ── EVENTS API ───────────────────────────────────────────────────────────────
+
+  // GET /api/events
+  if (path === '/api/events' && method === 'GET') {
+    const { school, year, team, polarity, category, location } = Object.fromEntries(url.searchParams)
+    let q = 'SELECT * FROM events WHERE 1=1'
+    const params = []
+    if (school)   { q += ' AND school = ?';      params.push(school) }
+    if (year)     { q += ' AND school_year = ?'; params.push(year) }
+    if (team)     { q += ' AND team_name = ?';   params.push(team) }
+    if (polarity) { q += ' AND polarity = ?';    params.push(polarity) }
+    if (category) { q += ' AND category = ?';    params.push(category) }
+    if (location) { q += ' AND location = ?';    params.push(location) }
+    q += ' ORDER BY event_date DESC, created_at DESC'
+    return json(res, db.prepare(q).all(...params))
+  }
+
+  // POST /api/events
+  if (path === '/api/events' && method === 'POST') {
+    const body = await readBody(req)
+    const { school, team_name, school_year, event_date, time_block, polarity, category, location, action_taken, student_group, notes } = body
+    if (!school_year || !event_date || !polarity || !category) return err(res, 'Missing required fields')
+    const result = db.prepare(`
+      INSERT INTO events (school, team_name, school_year, event_date, time_block, polarity, category, location, action_taken, student_group, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(school || 'HTMS', team_name || '', school_year, event_date, time_block || '', polarity, category, location || '', action_taken || '', student_group || '', notes || '')
+    return json(res, db.prepare('SELECT * FROM events WHERE id = ?').get(result.lastInsertRowid), 201)
+  }
+
+  // PATCH /api/events/:id
+  if (path.match(/^\/api\/events\/\d+$/) && method === 'PATCH') {
+    const id   = parseInt(path.split('/').pop())
+    const body = await readBody(req)
+    const row  = db.prepare('SELECT * FROM events WHERE id = ?').get(id)
+    if (!row) return err(res, 'Not found', 404)
+    const allowed = ['team_name','school_year','event_date','time_block','polarity','category','location','action_taken','student_group','notes']
+    const updates = []; const params = []
+    for (const key of allowed) {
+      if (key in body) { updates.push(`${key} = ?`); params.push(body[key]) }
+    }
+    if (!updates.length) return err(res, 'Nothing to update')
+    params.push(id)
+    db.prepare(`UPDATE events SET ${updates.join(', ')} WHERE id = ?`).run(...params)
+    return json(res, db.prepare('SELECT * FROM events WHERE id = ?').get(id))
+  }
+
+  // DELETE /api/events/:id
+  if (path.match(/^\/api\/events\/\d+$/) && method === 'DELETE') {
+    const id = parseInt(path.split('/').pop())
+    db.prepare('DELETE FROM events WHERE id = ?').run(id)
+    return json(res, { ok: true })
   }
 
   // ── STATIC FILES ─────────────────────────────────────────────────────────

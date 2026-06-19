@@ -27,6 +27,40 @@ const SUCCESS_INDICATORS = [
 ]
 const NEXT_STEP_OPTIONS = ['Continue','Adjust','Replace','End the strategy']
 
+const EVENT_CATEGORIES_NEG = [
+  'Classroom Disruption','Verbal Conflict','Physical Altercation',
+  'Bullying / Harassment','Insubordination / Defiance','Technology Misuse',
+  'Property Damage','Substance Related','Leaving Campus / Truancy','Other Behavioral',
+]
+const EVENT_CATEGORIES_POS = [
+  'Positive Behavior / Recognition','Academic Achievement',
+  'Attendance Improvement','Peer Support / Kindness','Community Contribution','Other Positive',
+]
+const EVENT_ALL_CATEGORIES = [...EVENT_CATEGORIES_NEG, ...EVENT_CATEGORIES_POS]
+
+const EVENT_LOCATIONS = [
+  'Classroom','Hallway','Cafeteria','Bathroom','Gym',
+  'Playground','Bus','Office','Common Area','Off Campus','Other',
+]
+const EVENT_TIME_BLOCKS = [
+  'Before School (6–8AM)','Morning (8–10AM)','Late Morning (10AM–12PM)',
+  'Lunch (12–2PM)','Afternoon (2–4PM)','After School (4PM+)',
+]
+const EVENT_ACTIONS = [
+  'Warning / Redirect','Conference','Parent Contact','Restorative Practice',
+  'Referral to Counselor','In-School Suspension','Out-of-School Suspension',
+  'Alternative Plan','Community Service','No Action','Other',
+]
+const EVENT_STUDENT_GROUPS = [
+  '6th Grade','7th Grade','8th Grade',
+  'ELL','Special Education','Historically Underserved','Other',
+]
+
+const CHART_PALETTE = [
+  '#1f5c3e','#3a8f63','#c8973a','#2563eb','#9333ea',
+  '#dc2626','#0891b2','#d97706','#16a34a','#7c3aed',
+]
+
 // ── State ──────────────────────────────────────────────────────────────────
 
 let view        = 'dashboard'  // dashboard | form | report | admin
@@ -40,7 +74,10 @@ let adminUnlocked = false
 
 function route() {
   const hash = location.hash.slice(1) || ''
+  destroyCharts()
   if (hash === 'admin')             { view = 'admin';     renderAdmin() }
+  else if (hash === 'events' || hash === 'events/log')   { view = 'events'; renderEventsLog() }
+  else if (hash === 'events/charts') { view = 'events';  renderEventsCharts() }
   else if (hash.startsWith('r/'))   { view = 'report';    renderReport(parseInt(hash.slice(2))) }
   else if (hash.startsWith('c/'))   {
     const parts = hash.split('/')
@@ -1187,7 +1224,435 @@ function renderAggregateReport(cycles) {
   document.getElementById('print-area').innerHTML = reportHTML
 }
 
+// ── Events ─────────────────────────────────────────────────────────────────
+
+let _charts = []
+
+function destroyCharts() {
+  _charts.forEach(c => { try { c.destroy() } catch {} })
+  _charts = []
+}
+
+function eventsTabBar(active) {
+  return `<div class="ev-tabs">
+    <a href="#events/log"    class="ev-tab ${active==='log'    ? 'active':''}" >Event Log</a>
+    <a href="#events/charts" class="ev-tab ${active==='charts' ? 'active':''}" >Dashboard</a>
+  </div>`
+}
+
+function schoolYearFromDate(d) {
+  const m = new Date(d).getMonth() // 0=Jan
+  const y = new Date(d).getFullYear()
+  return m >= 8 ? `${y}–${String(y+1).slice(2)}` : `${y-1}–${String(y).slice(2)}`
+}
+
+function schoolWeekNum(dateStr, yearStr) {
+  const startYear = parseInt(yearStr)
+  const sep1 = new Date(startYear, 8, 1)
+  const d    = new Date(dateStr)
+  return Math.max(1, Math.ceil(((d - sep1) / 864e5 + 1) / 7))
+}
+
+async function renderEventsLog() {
+  const yearParam  = new URLSearchParams(location.search).get('year') || SCHOOL_YEARS[1]
+  const teamParam  = new URLSearchParams(location.search).get('team') || ''
+  const polParam   = new URLSearchParams(location.search).get('pol') || ''
+  const catParam   = new URLSearchParams(location.search).get('cat') || ''
+  const locParam   = new URLSearchParams(location.search).get('loc') || ''
+
+  main().innerHTML = `
+    <div class="dashboard-header">
+      <div>
+        <div class="dashboard-title">Event Log</div>
+        <div class="dashboard-subtitle">Track behavioral and positive events to build your own data set</div>
+      </div>
+      <button class="btn" id="add-event-btn">+ Log Event</button>
+    </div>
+    ${eventsTabBar('log')}
+    <div class="filter-bar" id="ev-filters">
+      <select id="ev-year">${SCHOOL_YEARS.map(y=>`<option ${y===yearParam?'selected':''}>${y}</option>`).join('')}</select>
+      <input type="text" id="ev-team" placeholder="Team…" value="${teamParam}" style="max-width:160px"/>
+      <select id="ev-pol"><option value="">All</option><option value="negative" ${polParam==='negative'?'selected':''}>Negative</option><option value="positive" ${polParam==='positive'?'selected':''}>Positive</option></select>
+      <select id="ev-cat"><option value="">All categories</option>${EVENT_ALL_CATEGORIES.map(c=>`<option ${c===catParam?'selected':''}>${c}</option>`).join('')}</select>
+      <select id="ev-loc"><option value="">All locations</option>${EVENT_LOCATIONS.map(l=>`<option ${l===locParam?'selected':''}>${l}</option>`).join('')}</select>
+    </div>
+    <div id="ev-list"><div class="empty-state"><div class="empty-icon">⏳</div>Loading…</div></div>
+  `
+
+  document.getElementById('add-event-btn').onclick = () => showAddEventModal(() => renderEventsLog())
+
+  async function loadEvents() {
+    const year = document.getElementById('ev-year').value
+    const team = document.getElementById('ev-team').value
+    const pol  = document.getElementById('ev-pol').value
+    const cat  = document.getElementById('ev-cat').value
+    const loc  = document.getElementById('ev-loc').value
+    const p = new URLSearchParams({ year })
+    if (team) p.set('team', team)
+    if (pol)  p.set('polarity', pol)
+    if (cat)  p.set('category', cat)
+    if (loc)  p.set('location', loc)
+    try {
+      const evts = await api('GET', '/events?' + p)
+      renderEventList(evts)
+    } catch(e) { toast(e.message, 'error') }
+  }
+
+  ['ev-year','ev-pol','ev-cat','ev-loc'].forEach(id =>
+    document.getElementById(id)?.addEventListener('change', loadEvents))
+  document.getElementById('ev-team')?.addEventListener('input', loadEvents)
+
+  loadEvents()
+}
+
+function renderEventList(events) {
+  const wrap = document.getElementById('ev-list')
+  if (!wrap) return
+  if (!events.length) {
+    wrap.innerHTML = `<div class="empty-state"><div class="empty-icon">📋</div>No events logged yet. Click <strong>+ Log Event</strong> to start tracking.</div>`
+    return
+  }
+  wrap.innerHTML = events.map(ev => {
+    const isNeg = ev.polarity === 'negative'
+    return `<div class="ev-card">
+      <div class="ev-polarity ${isNeg ? 'neg' : 'pos'}">${isNeg ? '−' : '+'}</div>
+      <div class="ev-card-body">
+        <div class="ev-card-top">
+          <span class="ev-category">${ev.category}</span>
+          ${ev.location ? `<span class="ev-meta">${ev.location}</span>` : ''}
+          ${ev.time_block ? `<span class="ev-meta">${ev.time_block}</span>` : ''}
+          ${ev.team_name ? `<span class="ev-meta">${ev.team_name}</span>` : ''}
+        </div>
+        ${ev.notes ? `<div class="ev-notes">${ev.notes}</div>` : ''}
+        <div class="ev-date">${fmtDate(ev.event_date)}${ev.action_taken ? ' · ' + ev.action_taken : ''}</div>
+      </div>
+      <button class="btn btn-ghost btn-sm ev-delete" data-id="${ev.id}" style="flex-shrink:0;color:var(--dim)">✕</button>
+    </div>`
+  }).join('')
+
+  wrap.querySelectorAll('.ev-delete').forEach(btn => {
+    btn.onclick = async () => {
+      if (!confirm('Delete this event?')) return
+      try {
+        await api('DELETE', `/events/${btn.dataset.id}`)
+        btn.closest('.ev-card').remove()
+        toast('Event deleted')
+      } catch(e) { toast(e.message, 'error') }
+    }
+  })
+}
+
+function showAddEventModal(onSave) {
+  const today = new Date().toISOString().slice(0, 10)
+  const modal = document.createElement('div')
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:200;display:flex;align-items:flex-end;justify-content:center'
+  modal.innerHTML = `
+    <div class="card" style="width:100%;max-width:520px;border-radius:16px 16px 0 0;padding:24px 20px;max-height:92vh;overflow-y:auto">
+      <h2 style="font-size:18px;font-weight:700;color:var(--bright);margin-bottom:16px">Log an Event</h2>
+
+      <div class="field-group">
+        <div class="field-label">Positive or Negative? <span class="required">*</span></div>
+        <div class="ev-polarity-toggle">
+          <button class="ev-pol-btn pos" id="pol-pos" data-val="positive">+ Positive</button>
+          <button class="ev-pol-btn neg active" id="pol-neg" data-val="negative">− Negative</button>
+        </div>
+        <input type="hidden" id="m-polarity" value="negative" />
+      </div>
+
+      <div class="field-group">
+        <label class="field-label">Category <span class="required">*</span></label>
+        <select id="m-category">
+          <option value="">Select…</option>
+          <optgroup label="Negative" id="m-cat-neg">${EVENT_CATEGORIES_NEG.map(c=>`<option>${c}</option>`).join('')}</optgroup>
+          <optgroup label="Positive" id="m-cat-pos" style="display:none">${EVENT_CATEGORIES_POS.map(c=>`<option>${c}</option>`).join('')}</optgroup>
+        </select>
+      </div>
+
+      <div class="field-row">
+        <div class="field-group">
+          <label class="field-label">Date <span class="required">*</span></label>
+          <input type="date" id="m-ev-date" value="${today}" />
+        </div>
+        <div class="field-group">
+          <label class="field-label">School Year <span class="required">*</span></label>
+          <select id="m-ev-year">${SCHOOL_YEARS.map(y=>`<option ${y===SCHOOL_YEARS[1]?'selected':''}>${y}</option>`).join('')}</select>
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field-group">
+          <label class="field-label">Time of Day</label>
+          <select id="m-time"><option value="">Select…</option>${EVENT_TIME_BLOCKS.map(t=>`<option>${t}</option>`).join('')}</select>
+        </div>
+        <div class="field-group">
+          <label class="field-label">Location</label>
+          <select id="m-loc"><option value="">Select…</option>${EVENT_LOCATIONS.map(l=>`<option>${l}</option>`).join('')}</select>
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field-group">
+          <label class="field-label">Team</label>
+          <input type="text" id="m-ev-team" placeholder="Team name…" />
+        </div>
+        <div class="field-group" id="m-action-group">
+          <label class="field-label">Action Taken</label>
+          <select id="m-action"><option value="">Select…</option>${EVENT_ACTIONS.map(a=>`<option>${a}</option>`).join('')}</select>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label class="field-label">Student Group</label>
+        <select id="m-sgroup"><option value="">Select…</option>${EVENT_STUDENT_GROUPS.map(g=>`<option>${g}</option>`).join('')}</select>
+      </div>
+
+      <div class="field-group">
+        <label class="field-label">Notes</label>
+        <textarea id="m-ev-notes" rows="2" placeholder="Brief description or context…"></textarea>
+      </div>
+
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+        <button class="btn btn-ghost btn-sm" id="m-ev-cancel">Cancel</button>
+        <button class="btn btn-sm" id="m-ev-save">Save Event</button>
+      </div>
+    </div>
+  `
+  document.body.appendChild(modal)
+
+  // Polarity toggle
+  modal.querySelectorAll('.ev-pol-btn').forEach(btn => {
+    btn.onclick = () => {
+      modal.querySelectorAll('.ev-pol-btn').forEach(b => b.classList.remove('active'))
+      btn.classList.add('active')
+      document.getElementById('m-polarity').value = btn.dataset.val
+      document.getElementById('m-category').value = ''
+      const isNeg = btn.dataset.val === 'negative'
+      document.getElementById('m-cat-neg').style.display = isNeg ? '' : 'none'
+      document.getElementById('m-cat-pos').style.display = isNeg ? 'none' : ''
+      document.getElementById('m-action-group').style.display = isNeg ? '' : 'none'
+    }
+  })
+
+  document.getElementById('m-ev-cancel').onclick = () => modal.remove()
+  document.getElementById('m-ev-save').onclick = async () => {
+    const polarity  = document.getElementById('m-polarity').value
+    const category  = document.getElementById('m-category').value
+    const event_date = document.getElementById('m-ev-date').value
+    const school_year = document.getElementById('m-ev-year').value
+    if (!category || !event_date || !school_year) { toast('Category and date are required', 'error'); return }
+    try {
+      await api('POST', '/events', {
+        polarity, category, event_date, school_year,
+        time_block:    document.getElementById('m-time').value,
+        location:      document.getElementById('m-loc').value,
+        team_name:     document.getElementById('m-ev-team').value.trim(),
+        action_taken:  document.getElementById('m-action').value,
+        student_group: document.getElementById('m-sgroup').value,
+        notes:         document.getElementById('m-ev-notes').value.trim(),
+      })
+      modal.remove()
+      toast('Event logged')
+      if (onSave) onSave()
+    } catch(e) { toast(e.message, 'error') }
+  }
+
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove() })
+}
+
+async function renderEventsCharts() {
+  main().innerHTML = `
+    <div class="dashboard-header">
+      <div>
+        <div class="dashboard-title">Event Dashboard</div>
+        <div class="dashboard-subtitle">Visualize patterns across your logged events</div>
+      </div>
+      <button class="btn" id="add-event-btn2">+ Log Event</button>
+    </div>
+    ${eventsTabBar('charts')}
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:20px">
+      <select id="ch-year" style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:13px">${SCHOOL_YEARS.map(y=>`<option ${y===SCHOOL_YEARS[1]?'selected':''}>${y}</option>`).join('')}</select>
+      <select id="ch-team" style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:13px"><option value="">All teams</option></select>
+      <span id="ch-count" style="font-size:13px;color:var(--muted)"></span>
+    </div>
+    <div id="charts-wrap"></div>
+  `
+  document.getElementById('add-event-btn2').onclick = () => showAddEventModal(() => loadChartData())
+
+  async function loadChartData() {
+    const year = document.getElementById('ch-year').value
+    const team = document.getElementById('ch-team').value
+    const p = new URLSearchParams({ year })
+    if (team) p.set('team', team)
+    try {
+      const evts = await api('GET', '/events?' + p)
+
+      // Populate team filter
+      const teams = [...new Set(evts.map(e => e.team_name).filter(Boolean))].sort()
+      const teamSel = document.getElementById('ch-team')
+      const curTeam = teamSel.value
+      teamSel.innerHTML = '<option value="">All teams</option>' + teams.map(t => `<option ${t===curTeam?'selected':''}>${t}</option>`).join('')
+
+      document.getElementById('ch-count').textContent = `${evts.length} event${evts.length!==1?'s':''}`
+      buildAllCharts(evts, year)
+    } catch(e) { toast(e.message, 'error') }
+  }
+
+  document.getElementById('ch-year').addEventListener('change', loadChartData)
+  document.getElementById('ch-team').addEventListener('change', loadChartData)
+  loadChartData()
+}
+
+function buildAllCharts(evts, year) {
+  destroyCharts()
+  const wrap = document.getElementById('charts-wrap')
+  if (!wrap) return
+
+  if (!evts.length) {
+    wrap.innerHTML = `<div class="empty-state"><div class="empty-icon">📊</div>No events logged for this selection yet.</div>`
+    return
+  }
+
+  wrap.innerHTML = `
+    <div class="chart-card">
+      <div class="chart-title">Are incidents decreasing week over week?</div>
+      <div class="chart-sub">Weekly count of negative events — ${year}</div>
+      <div class="chart-wrap"><canvas id="ch-weekly"></canvas></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px">
+      <div class="chart-card">
+        <div class="chart-title">What types of events are occurring?</div>
+        <div class="chart-sub">By category</div>
+        <div class="chart-wrap"><canvas id="ch-category"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">When are events occurring?</div>
+        <div class="chart-sub">By time of day</div>
+        <div class="chart-wrap"><canvas id="ch-time"></canvas></div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px">
+      <div class="chart-card">
+        <div class="chart-title">Where are events occurring?</div>
+        <div class="chart-sub">By location</div>
+        <div class="chart-wrap"><canvas id="ch-location"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Positive vs. Negative ratio</div>
+        <div class="chart-sub">Overall balance for this period</div>
+        <div class="chart-wrap" style="max-height:220px;display:flex;align-items:center;justify-content:center"><canvas id="ch-polarity"></canvas></div>
+      </div>
+    </div>
+  `
+
+  const neg = evts.filter(e => e.polarity === 'negative')
+  const pos = evts.filter(e => e.polarity === 'positive')
+
+  // ── Weekly trend ──
+  const weekCounts = {}
+  const weekCountsPos = {}
+  for (let w = 1; w <= 42; w++) { weekCounts[w] = 0; weekCountsPos[w] = 0 }
+  neg.forEach(e => { const w = schoolWeekNum(e.event_date, year); if (w >= 1 && w <= 42) weekCounts[w]++ })
+  pos.forEach(e => { const w = schoolWeekNum(e.event_date, year); if (w >= 1 && w <= 42) weekCountsPos[w]++ })
+  const maxWeek = Math.max(42, ...Object.keys(weekCounts).filter(w => weekCounts[w] > 0).map(Number))
+  const weekLabels = Array.from({length: maxWeek}, (_, i) => i + 1)
+
+  const chWeekly = new Chart(document.getElementById('ch-weekly'), {
+    type: 'line',
+    data: {
+      labels: weekLabels,
+      datasets: [
+        { label: 'Negative', data: weekLabels.map(w => weekCounts[w] || 0),
+          borderColor: '#c0392b', backgroundColor: 'rgba(192,57,43,0.1)',
+          fill: true, tension: 0.3, pointRadius: 3 },
+        { label: 'Positive', data: weekLabels.map(w => weekCountsPos[w] || 0),
+          borderColor: '#1f5c3e', backgroundColor: 'rgba(31,92,62,0.1)',
+          fill: true, tension: 0.3, pointRadius: 3 },
+      ]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'bottom' } },
+      scales: { x: { title: { display: true, text: 'Instructional Week' } },
+                y: { beginAtZero: true, title: { display: true, text: '# of Events' }, ticks: { stepSize: 1 } } } }
+  })
+  _charts.push(chWeekly)
+
+  // ── By category ──
+  const catCounts = {}
+  evts.forEach(e => { catCounts[e.category] = (catCounts[e.category] || 0) + 1 })
+  const catEntries = Object.entries(catCounts).sort((a, b) => b[1] - a[1])
+  const isNegCat = c => EVENT_CATEGORIES_NEG.includes(c)
+  const chCat = new Chart(document.getElementById('ch-category'), {
+    type: 'bar',
+    data: {
+      labels: catEntries.map(([k]) => k),
+      datasets: [{ label: 'Events',
+        data: catEntries.map(([,v]) => v),
+        backgroundColor: catEntries.map(([k]) => isNegCat(k) ? 'rgba(192,57,43,0.75)' : 'rgba(31,92,62,0.75)'),
+      }]
+    },
+    options: { indexAxis: 'y', responsive: true, plugins: { legend: { display: false } },
+      scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+  })
+  _charts.push(chCat)
+
+  // ── By time of day ──
+  const timeCounts = {}
+  EVENT_TIME_BLOCKS.forEach(t => { timeCounts[t] = { neg: 0, pos: 0 } })
+  evts.forEach(e => {
+    if (e.time_block && timeCounts[e.time_block]) {
+      timeCounts[e.time_block][e.polarity === 'negative' ? 'neg' : 'pos']++
+    }
+  })
+  const shortTimeLabels = EVENT_TIME_BLOCKS.map(t => t.replace(/ \(.+\)/, ''))
+  const chTime = new Chart(document.getElementById('ch-time'), {
+    type: 'bar',
+    data: {
+      labels: shortTimeLabels,
+      datasets: [
+        { label: 'Negative', data: EVENT_TIME_BLOCKS.map(t => timeCounts[t].neg), backgroundColor: 'rgba(192,57,43,0.75)' },
+        { label: 'Positive', data: EVENT_TIME_BLOCKS.map(t => timeCounts[t].pos), backgroundColor: 'rgba(31,92,62,0.75)' },
+      ]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'bottom' } },
+      scales: { x: { stacked: false }, y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+  })
+  _charts.push(chTime)
+
+  // ── By location ──
+  const locCounts = {}
+  evts.forEach(e => { if (e.location) locCounts[e.location] = (locCounts[e.location] || 0) + 1 })
+  const locEntries = Object.entries(locCounts).sort((a, b) => b[1] - a[1])
+  const chLoc = new Chart(document.getElementById('ch-location'), {
+    type: 'bar',
+    data: {
+      labels: locEntries.map(([k]) => k),
+      datasets: [{ label: 'Events',
+        data: locEntries.map(([,v]) => v),
+        backgroundColor: CHART_PALETTE.slice(0, locEntries.length),
+      }]
+    },
+    options: { indexAxis: 'y', responsive: true, plugins: { legend: { display: false } },
+      scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+  })
+  _charts.push(chLoc)
+
+  // ── Polarity donut ──
+  const chPol = new Chart(document.getElementById('ch-polarity'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Negative', 'Positive'],
+      datasets: [{ data: [neg.length, pos.length],
+        backgroundColor: ['rgba(192,57,43,0.8)', 'rgba(31,92,62,0.8)'],
+        borderWidth: 2, borderColor: '#fff',
+      }]
+    },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom' } } }
+  })
+  _charts.push(chPol)
+}
+
 // ── Boot ───────────────────────────────────────────────────────────────────
 
+document.getElementById('events-btn').addEventListener('click', () => go('events'))
 document.getElementById('admin-btn').addEventListener('click', () => go('admin'))
 route()
